@@ -17,8 +17,8 @@ router.get('/:id', getProductById);
 // Create a new product with image upload
 router.post('/', upload.single('image'), createProduct);
 
-// Update a product 
-router.put('/:id', updateProduct);
+// Update a product with optional image upload
+router.put('/:id', upload.single('image'), updateProduct);
 
 // Delete a product
 router.delete('/:id', deleteProduct);
