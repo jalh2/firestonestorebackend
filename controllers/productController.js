@@ -36,6 +36,7 @@ const getProducts = async (req, res) => {
     const limit = parseInt(req.query.limit) || 20;
     const store = req.query.store;
     const lowStock = req.query.lowStock === 'true';
+    const barcode = req.query.barcode;
     const skip = (page - 1) * limit;
 
     if (!store) {
@@ -50,6 +51,13 @@ const getProducts = async (req, res) => {
       query.pieces = { $lte: 7 };
     }
 
+    // Add barcode filter if provided
+    if (barcode) {
+      query.barcode = barcode;
+      console.log('Searching for barcode:', barcode);
+      console.log('Query:', query);
+    }
+
     // Get total count for pagination with store filter
     const totalCount = await Product.countDocuments(query);
     const totalPages = Math.ceil(totalCount / limit);
@@ -57,8 +65,8 @@ const getProducts = async (req, res) => {
     // Get paginated products for specific store
     const products = await Product.find(query)
       .sort({ createdAt: -1 })
-      .skip(lowStock ? 0 : skip) // Skip pagination for low stock items to show all of them
-      .limit(lowStock ? 100 : limit); // Use higher limit for low stock items
+      .skip(lowStock || barcode ? 0 : skip) // Skip pagination for low stock items or barcode search
+      .limit(lowStock || barcode ? 100 : limit); // Use higher limit for low stock items or barcode search
     
     // Get transactions for each product to calculate totals
     const productsWithTotals = await Promise.all(products.map(async (product) => {
