@@ -242,11 +242,26 @@ const getSalesReport = async (req, res) => {
 
     const transactions = await Transaction.find(query).sort({ date: -1 });
 
+    // Get recent transactions with payment details
+    const recentTransactions = await Transaction.find(query)
+      .sort({ date: -1 })
+      .limit(50)
+      .select('_id date store currency totalLRD totalUSD amountReceived change productsSold');
+
     // Process transactions for report
     let dailyTotals = {};
     let productTotals = {};
     let storeTotals = {};
-    let overallTotals = { totalLRD: 0, totalUSD: 0, totalItems: 0, totalTransactions: 0 };
+    let overallTotals = { 
+      totalLRD: 0, 
+      totalUSD: 0, 
+      totalItems: 0, 
+      totalTransactions: 0,
+      totalAmountReceivedLRD: 0,
+      totalAmountReceivedUSD: 0,
+      totalChangeLRD: 0,
+      totalChangeUSD: 0
+    };
 
     transactions.forEach(transaction => {
       // Process daily totals
@@ -272,6 +287,19 @@ const getSalesReport = async (req, res) => {
       }
       dailyTotals[dateKey].transactions += 1;
       overallTotals.totalTransactions += 1;
+
+      // Track payment details for overall totals
+      if (transaction.currency === 'LRD' && transaction.amountReceived) {
+        overallTotals.totalAmountReceivedLRD += transaction.amountReceived;
+        if (transaction.change) {
+          overallTotals.totalChangeLRD += transaction.change;
+        }
+      } else if (transaction.currency === 'USD' && transaction.amountReceived) {
+        overallTotals.totalAmountReceivedUSD += transaction.amountReceived;
+        if (transaction.change) {
+          overallTotals.totalChangeUSD += transaction.change;
+        }
+      }
 
       // Process store totals
       if (!storeTotals[transaction.store]) {
@@ -312,37 +340,33 @@ const getSalesReport = async (req, res) => {
         }
 
         productTotals[productKey].quantitySold += quantity;
-        if (transaction.currency === 'LRD' && product.priceAtSale) {
-          productTotals[productKey].totalLRD += quantity * (product.priceAtSale.LRD || 0);
-        } else if (product.priceAtSale) {
-          productTotals[productKey].totalUSD += quantity * (product.priceAtSale.USD || 0);
+
+        // Calculate product revenue based on currency
+        if (transaction.currency === 'LRD') {
+          productTotals[productKey].totalLRD += product.priceAtSale.LRD * quantity;
+        } else {
+          productTotals[productKey].totalUSD += product.priceAtSale.USD * quantity;
         }
       });
     });
 
-    // Sort daily totals by date
-    const sortedDailyTotals = Object.values(dailyTotals).sort((a, b) => 
-      new Date(b.date) - new Date(a.date)
-    );
+    // Convert objects to arrays for response
+    const dailyTotalsArray = Object.values(dailyTotals).sort((a, b) => new Date(b.date) - new Date(a.date));
+    const productTotalsArray = Object.values(productTotals).sort((a, b) => b.quantitySold - a.quantitySold);
+    const storeTotalsArray = Object.values(storeTotals).sort((a, b) => b.transactions - a.transactions);
 
-    // Sort product totals by quantity sold
-    const sortedProductTotals = Object.values(productTotals).sort((a, b) => 
-      b.quantitySold - a.quantitySold
-    );
+    // Add store count to summary
+    overallTotals.storeCount = Object.keys(storeTotals).length;
 
     res.json({
-      dailyTotals: sortedDailyTotals,
-      productTotals: sortedProductTotals,
-      storeTotals: allStores ? Object.values(storeTotals) : undefined,
-      summary: {
-        totalTransactions: overallTotals.totalTransactions,
-        totalItems: overallTotals.totalItems,
-        totalLRD: overallTotals.totalLRD,
-        totalUSD: overallTotals.totalUSD,
-        storeCount: allStores ? Object.keys(storeTotals).length : 1
-      }
+      summary: overallTotals,
+      dailyTotals: dailyTotalsArray,
+      productTotals: productTotalsArray,
+      storeTotals: storeTotalsArray,
+      recentTransactions: recentTransactions
     });
   } catch (error) {
+    console.error('Error generating sales report:', error);
     res.status(500).json({ error: error.message });
   }
 };
