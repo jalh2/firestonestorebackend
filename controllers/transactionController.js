@@ -5,7 +5,7 @@ const Product = require('../models/Product');
 
 const createTransaction = async (req, res) => {
   try {
-    const { productsSold, currency, store } = req.body;
+    const { productsSold, currency, store, amountReceived, change } = req.body;
 
     if (!store) {
       return res.status(400).json({ error: 'Store is required' });
@@ -47,11 +47,18 @@ const createTransaction = async (req, res) => {
       });
     }
 
-    // Create transaction with total only in selected currency and enhanced product info
+    // Validate payment information
+    if (typeof amountReceived !== 'number' || amountReceived < total) {
+      return res.status(400).json({ error: 'Amount received must be a number greater than or equal to the total' });
+    }
+
+    // Create transaction with total only in selected currency, enhanced product info, and payment details
     const transaction = new Transaction({
       ...req.body,
       productsSold: enhancedProductsSold,
-      ...(currency === 'LRD' ? { totalLRD: total } : { totalUSD: total })
+      ...(currency === 'LRD' ? { totalLRD: total } : { totalUSD: total }),
+      amountReceived,
+      change: amountReceived - total
     });
 
     await transaction.save();

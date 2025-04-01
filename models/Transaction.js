@@ -28,6 +28,15 @@ const transactionSchema = new mongoose.Schema({
     required: function() { return this.currency === 'USD'; },
     default: 0
   },
+  amountReceived: {
+    type: Number,
+    required: true
+  },
+  change: {
+    type: Number,
+    required: true,
+    default: 0
+  },
   createdAt: { type: Date, default: Date.now }
 });
 

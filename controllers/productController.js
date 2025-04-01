@@ -266,6 +266,27 @@ const deleteProduct = async (req, res) => {
   }
 };
 
+const deleteAllProducts = async (req, res) => {
+  try {
+    const { store } = req.query;
+    
+    if (!store) {
+      return res.status(400).json({ error: 'Store parameter is required' });
+    }
+
+    // Delete all products for the specified store
+    const result = await Product.deleteMany({ store });
+    
+    res.status(200).json({ 
+      message: 'All products deleted successfully', 
+      deletedCount: result.deletedCount 
+    });
+  } catch (error) {
+    console.error('Error deleting all products:', error);
+    res.status(500).json({ error: 'Failed to delete products' });
+  }
+};
+
 const getInventorySummary = async (req, res) => {
   try {
     const { store } = req.query;
@@ -350,5 +371,6 @@ module.exports = {
   updateProduct,
   updateProductInventory,
   deleteProduct,
+  deleteAllProducts,
   getInventorySummary
 };
