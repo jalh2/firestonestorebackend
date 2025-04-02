@@ -254,8 +254,7 @@ const getSalesReport = async (req, res) => {
     end.setHours(23, 59, 59, 999);
 
     // Build query based on whether we want all stores or a specific store
-    const query = {
-      type: 'sale',
+    const baseQuery = {
       date: {
         $gte: start,
         $lte: end
@@ -263,16 +262,23 @@ const getSalesReport = async (req, res) => {
     };
 
     if (!allStores) {
-      query.store = store;
+      baseQuery.store = store;
     }
 
-    const transactions = await Transaction.find(query).sort({ date: -1 });
+    // Get sales transactions
+    const salesQuery = { ...baseQuery, type: 'sale' };
+    const salesTransactions = await Transaction.find(salesQuery).sort({ date: -1 });
 
-    // Get recent transactions with payment details
-    const recentTransactions = await Transaction.find(query)
+    // Get return transactions
+    const returnsQuery = { ...baseQuery, type: 'return' };
+    const returnTransactions = await Transaction.find(returnsQuery).sort({ date: -1 });
+
+    // Get recent transactions with payment details (both sales and returns)
+    const recentTransactionsQuery = { ...baseQuery, type: { $in: ['sale', 'return'] } };
+    const recentTransactions = await Transaction.find(recentTransactionsQuery)
       .sort({ date: -1 })
       .limit(50)
-      .select('_id date store currency totalLRD totalUSD amountReceivedLRD amountReceivedUSD change productsSold');
+      .select('_id date store currency totalLRD totalUSD amountReceivedLRD amountReceivedUSD change productsSold type');
 
     // Process transactions for report
     let dailyTotals = {};
@@ -283,13 +289,15 @@ const getSalesReport = async (req, res) => {
       totalUSD: 0, 
       totalItems: 0, 
       totalTransactions: 0,
+      totalReturns: 0,
       totalAmountReceivedLRD: 0,
       totalAmountReceivedUSD: 0,
       totalChangeLRD: 0,
       totalChangeUSD: 0
     };
 
-    transactions.forEach(transaction => {
+    // Process sales transactions
+    salesTransactions.forEach(transaction => {
       // Process daily totals
       const dateKey = transaction.date.toISOString().split('T')[0];
       if (!dailyTotals[dateKey]) {
@@ -298,6 +306,7 @@ const getSalesReport = async (req, res) => {
           totalLRD: 0,
           totalUSD: 0,
           transactions: 0,
+          returns: 0,
           items: 0
         };
       }
@@ -334,6 +343,7 @@ const getSalesReport = async (req, res) => {
           totalLRD: 0,
           totalUSD: 0,
           transactions: 0,
+          returns: 0,
           items: 0
         };
       }
@@ -360,6 +370,7 @@ const getSalesReport = async (req, res) => {
             name: product.productName,
             store: transaction.store,
             quantitySold: 0,
+            quantityReturned: 0,
             totalLRD: 0,
             totalUSD: 0
           };
@@ -375,6 +386,106 @@ const getSalesReport = async (req, res) => {
         }
       });
     });
+
+    // Process return transactions
+    returnTransactions.forEach(transaction => {
+      // Process daily totals
+      const dateKey = transaction.date.toISOString().split('T')[0];
+      if (!dailyTotals[dateKey]) {
+        dailyTotals[dateKey] = {
+          date: dateKey,
+          totalLRD: 0,
+          totalUSD: 0,
+          transactions: 0,
+          returns: 0,
+          items: 0
+        };
+      }
+
+      // Update daily totals for returns (subtract from sales)
+      if (transaction.totalLRD) {
+        dailyTotals[dateKey].totalLRD -= transaction.totalLRD;
+        overallTotals.totalLRD -= transaction.totalLRD;
+      }
+      if (transaction.totalUSD) {
+        dailyTotals[dateKey].totalUSD -= transaction.totalUSD;
+        overallTotals.totalUSD -= transaction.totalUSD;
+      }
+      dailyTotals[dateKey].returns += 1;
+      overallTotals.totalReturns += 1;
+
+      // Process store totals
+      if (!storeTotals[transaction.store]) {
+        storeTotals[transaction.store] = {
+          store: transaction.store,
+          totalLRD: 0,
+          totalUSD: 0,
+          transactions: 0,
+          returns: 0,
+          items: 0
+        };
+      }
+
+      // Update store totals for returns (subtract from sales)
+      if (transaction.totalLRD) {
+        storeTotals[transaction.store].totalLRD -= transaction.totalLRD;
+      }
+      if (transaction.totalUSD) {
+        storeTotals[transaction.store].totalUSD -= transaction.totalUSD;
+      }
+      storeTotals[transaction.store].returns += 1;
+
+      // Process product totals and item counts for returns
+      transaction.productsSold.forEach(product => {
+        const quantity = product.quantity || 0;
+        dailyTotals[dateKey].items -= quantity; // Subtract returned items from daily total
+        storeTotals[transaction.store].items -= quantity; // Subtract returned items from store total
+        overallTotals.totalItems -= quantity; // Subtract returned items from overall total
+
+        const productKey = `${product.productName}_${transaction.store}`;
+        if (!productTotals[productKey]) {
+          productTotals[productKey] = {
+            name: product.productName,
+            store: transaction.store,
+            quantitySold: 0,
+            quantityReturned: 0,
+            totalLRD: 0,
+            totalUSD: 0
+          };
+        }
+
+        productTotals[productKey].quantityReturned += quantity;
+
+        // Subtract return value from product revenue based on currency
+        if (transaction.currency === 'LRD') {
+          productTotals[productKey].totalLRD -= product.priceAtSale.LRD * quantity;
+        } else {
+          productTotals[productKey].totalUSD -= product.priceAtSale.USD * quantity;
+        }
+      });
+    });
+
+    // Ensure no negative values in the totals
+    Object.keys(dailyTotals).forEach(key => {
+      dailyTotals[key].totalLRD = Math.max(0, dailyTotals[key].totalLRD);
+      dailyTotals[key].totalUSD = Math.max(0, dailyTotals[key].totalUSD);
+      dailyTotals[key].items = Math.max(0, dailyTotals[key].items);
+    });
+
+    Object.keys(storeTotals).forEach(key => {
+      storeTotals[key].totalLRD = Math.max(0, storeTotals[key].totalLRD);
+      storeTotals[key].totalUSD = Math.max(0, storeTotals[key].totalUSD);
+      storeTotals[key].items = Math.max(0, storeTotals[key].items);
+    });
+
+    Object.keys(productTotals).forEach(key => {
+      productTotals[key].totalLRD = Math.max(0, productTotals[key].totalLRD);
+      productTotals[key].totalUSD = Math.max(0, productTotals[key].totalUSD);
+    });
+
+    overallTotals.totalLRD = Math.max(0, overallTotals.totalLRD);
+    overallTotals.totalUSD = Math.max(0, overallTotals.totalUSD);
+    overallTotals.totalItems = Math.max(0, overallTotals.totalItems);
 
     // Convert objects to arrays for response
     const dailyTotalsArray = Object.values(dailyTotals).sort((a, b) => new Date(b.date) - new Date(a.date));

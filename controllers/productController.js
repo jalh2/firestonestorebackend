@@ -341,16 +341,23 @@ const getInventorySummary = async (req, res) => {
     });
     
     // Get all sales transactions for the store
-    const transactions = await Transaction.find({ 
+    const salesTransactions = await Transaction.find({ 
       store,
       type: 'sale'
+    }).populate('productsSold.product');
+    
+    // Get all return transactions for the store
+    const returnTransactions = await Transaction.find({
+      store,
+      type: 'return'
     }).populate('productsSold.product');
     
     // Calculate sales totals
     let totalSalesLRD = 0;
     let totalSalesUSD = 0;
     
-    transactions.forEach(transaction => {
+    // Add sales
+    salesTransactions.forEach(transaction => {
       // If the transaction has a totalLRD or totalUSD field, use that directly
       if (transaction.currency === 'LRD' && transaction.totalLRD) {
         totalSalesLRD += transaction.totalLRD;
@@ -370,6 +377,32 @@ const getInventorySummary = async (req, res) => {
         });
       }
     });
+    
+    // Subtract returns
+    returnTransactions.forEach(transaction => {
+      // If the transaction has a totalLRD or totalUSD field, use that directly
+      if (transaction.currency === 'LRD' && transaction.totalLRD) {
+        totalSalesLRD -= transaction.totalLRD;
+      } else if (transaction.currency === 'USD' && transaction.totalUSD) {
+        totalSalesUSD -= transaction.totalUSD;
+      } else {
+        // Otherwise calculate from the productsSold array (which contains returned products)
+        transaction.productsSold.forEach(item => {
+          if (transaction.currency === 'LRD') {
+            // Use the price field if available, otherwise calculate from priceAtSale
+            const price = item.price || item.priceAtSale?.LRD || 0;
+            totalSalesLRD -= item.quantity * price;
+          } else {
+            const price = item.price || item.priceAtSale?.USD || 0;
+            totalSalesUSD -= item.quantity * price;
+          }
+        });
+      }
+    });
+    
+    // Ensure sales totals are not negative
+    totalSalesLRD = Math.max(0, totalSalesLRD);
+    totalSalesUSD = Math.max(0, totalSalesUSD);
     
     res.json({
       totalInventoryLRD,
