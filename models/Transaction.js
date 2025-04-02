@@ -2,7 +2,7 @@ const mongoose = require('mongoose');
 
 const transactionSchema = new mongoose.Schema({
   date: { type: Date, default: Date.now },
-  type: { type: String, enum: ['sale', 'restock'], default: 'sale' },
+  type: { type: String, enum: ['sale', 'restock', 'return'], default: 'sale' },
   store: {
     type: String,
     required: true,
@@ -45,6 +45,14 @@ const transactionSchema = new mongoose.Schema({
   totalUSD: { 
     type: Number, 
     default: 0
+  },
+  returnReason: {
+    type: String,
+    trim: true
+  },
+  originalTransaction: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Transaction'
   },
   createdAt: { type: Date, default: Date.now }
 });

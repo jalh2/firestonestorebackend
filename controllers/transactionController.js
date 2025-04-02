@@ -451,6 +451,86 @@ const getTopProducts = async (req, res) => {
   }
 };
 
+// Handle product returns
+const createReturnTransaction = async (req, res) => {
+  try {
+    const { 
+      productsReturned, 
+      currency, 
+      store, 
+      returnReason,
+      originalTransactionId
+    } = req.body;
+
+    if (!store) {
+      return res.status(400).json({ error: 'Store is required' });
+    }
+
+    if (!productsReturned || !Array.isArray(productsReturned) || productsReturned.length === 0) {
+      return res.status(400).json({ error: 'At least one product must be returned' });
+    }
+
+    // Enhanced products with names and prices
+    const enhancedProductsReturned = [];
+    let totalLRD = 0;
+    let totalUSD = 0;
+
+    // Validate products and update inventory
+    for (const item of productsReturned) {
+      const product = await Product.findOne({ _id: item.product, store });
+      if (!product) {
+        return res.status(404).json({ error: `Product ${item.product} not found in store ${store}` });
+      }
+
+      // Validate quantity
+      if (!item.quantity || item.quantity <= 0) {
+        return res.status(400).json({ error: `Invalid quantity for product ${product.item}` });
+      }
+
+      // Update product quantity (add back to inventory)
+      await Product.findByIdAndUpdate(
+        item.product,
+        { $inc: { pieces: item.quantity } }
+      );
+
+      // Calculate totals
+      const itemTotalLRD = product.priceLRD * item.quantity;
+      const itemTotalUSD = product.priceUSD * item.quantity;
+      totalLRD += itemTotalLRD;
+      totalUSD += itemTotalUSD;
+
+      // Add enhanced product information
+      enhancedProductsReturned.push({
+        product: item.product,
+        productName: product.item,
+        quantity: item.quantity,
+        priceAtSale: {
+          USD: product.priceUSD,
+          LRD: product.priceLRD
+        }
+      });
+    }
+
+    // Create return transaction
+    const transaction = new Transaction({
+      type: 'return',
+      productsSold: enhancedProductsReturned, // Reusing productsSold field for returned products
+      currency,
+      store,
+      totalLRD: totalLRD,
+      totalUSD: totalUSD,
+      returnReason: returnReason || 'No reason provided',
+      originalTransaction: originalTransactionId || null
+    });
+
+    await transaction.save();
+    res.status(201).json(transaction);
+  } catch (error) {
+    console.error('Return transaction error:', error);
+    res.status(400).json({ error: error.message });
+  }
+};
+
 module.exports = {
   createTransaction,
   getTransactions,
@@ -459,5 +539,6 @@ module.exports = {
   getTransactionsByProduct,
   getTransactionsByDateRange,
   getSalesReport,
-  getTopProducts
+  getTopProducts,
+  createReturnTransaction
 };
