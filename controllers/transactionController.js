@@ -5,17 +5,26 @@ const Product = require('../models/Product');
 
 const createTransaction = async (req, res) => {
   try {
-    const { productsSold, currency, store, amountReceived, change } = req.body;
+    const { 
+      productsSold, 
+      currency, 
+      store, 
+      amountReceivedLRD,
+      amountReceivedUSD,
+      change,
+      changeCurrency,
+      totalLRD,
+      totalUSD
+    } = req.body;
 
     if (!store) {
       return res.status(400).json({ error: 'Store is required' });
     }
 
-    // Calculate total only for selected currency
-    let total = 0;
+    // Enhanced products with names and prices
     const enhancedProductsSold = [];
 
-    // Validate products and calculate total
+    // Validate products and update inventory
     for (const item of productsSold) {
       const product = await Product.findOne({ _id: item.product, store });
       if (!product) {
@@ -24,11 +33,6 @@ const createTransaction = async (req, res) => {
       if (product.pieces < item.quantity) {
         return res.status(400).json({ error: `Insufficient quantity for product ${product.item}` });
       }
-
-      // Calculate total based on selected currency
-      total += currency === 'LRD' ? 
-        product.priceLRD * item.quantity : 
-        product.priceUSD * item.quantity;
 
       // Update product quantity
       await Product.findByIdAndUpdate(
@@ -47,18 +51,40 @@ const createTransaction = async (req, res) => {
       });
     }
 
-    // Validate payment information
-    if (typeof amountReceived !== 'number' || amountReceived < total) {
-      return res.status(400).json({ error: 'Amount received must be a number greater than or equal to the total' });
+    // Validate payment information based on currency
+    if (currency === 'LRD') {
+      if (typeof amountReceivedLRD !== 'number' || amountReceivedLRD < totalLRD) {
+        return res.status(400).json({ error: 'Amount received in LRD must be greater than or equal to the total' });
+      }
+    } else if (currency === 'USD') {
+      if (typeof amountReceivedUSD !== 'number' || amountReceivedUSD < totalUSD) {
+        return res.status(400).json({ error: 'Amount received in USD must be greater than or equal to the total' });
+      }
+    } else if (currency === 'BOTH') {
+      if (typeof amountReceivedLRD !== 'number' || typeof amountReceivedUSD !== 'number') {
+        return res.status(400).json({ error: 'Both LRD and USD amounts must be provided for split payment' });
+      }
+      
+      // Check if combined payment is sufficient
+      const EXCHANGE_RATE = 200; // 200 LRD = 1 USD
+      const totalPaymentValueLRD = amountReceivedLRD + (amountReceivedUSD * EXCHANGE_RATE);
+      
+      if (totalPaymentValueLRD < totalLRD) {
+        return res.status(400).json({ error: 'Combined payment amount is insufficient' });
+      }
     }
 
-    // Create transaction with total only in selected currency, enhanced product info, and payment details
+    // Create transaction with the appropriate payment details
     const transaction = new Transaction({
-      ...req.body,
       productsSold: enhancedProductsSold,
-      ...(currency === 'LRD' ? { totalLRD: total } : { totalUSD: total }),
-      amountReceived,
-      change: amountReceived - total
+      currency,
+      store,
+      amountReceivedLRD: currency === 'USD' ? 0 : amountReceivedLRD,
+      amountReceivedUSD: currency === 'LRD' ? 0 : amountReceivedUSD,
+      change,
+      changeCurrency: currency === 'BOTH' ? changeCurrency : currency,
+      totalLRD: totalLRD || 0,
+      totalUSD: totalUSD || 0
     });
 
     await transaction.save();
@@ -246,7 +272,7 @@ const getSalesReport = async (req, res) => {
     const recentTransactions = await Transaction.find(query)
       .sort({ date: -1 })
       .limit(50)
-      .select('_id date store currency totalLRD totalUSD amountReceived change productsSold');
+      .select('_id date store currency totalLRD totalUSD amountReceivedLRD amountReceivedUSD change productsSold');
 
     // Process transactions for report
     let dailyTotals = {};
@@ -289,13 +315,13 @@ const getSalesReport = async (req, res) => {
       overallTotals.totalTransactions += 1;
 
       // Track payment details for overall totals
-      if (transaction.currency === 'LRD' && transaction.amountReceived) {
-        overallTotals.totalAmountReceivedLRD += transaction.amountReceived;
+      if (transaction.currency === 'LRD' && transaction.amountReceivedLRD) {
+        overallTotals.totalAmountReceivedLRD += transaction.amountReceivedLRD;
         if (transaction.change) {
           overallTotals.totalChangeLRD += transaction.change;
         }
-      } else if (transaction.currency === 'USD' && transaction.amountReceived) {
-        overallTotals.totalAmountReceivedUSD += transaction.amountReceived;
+      } else if (transaction.currency === 'USD' && transaction.amountReceivedUSD) {
+        overallTotals.totalAmountReceivedUSD += transaction.amountReceivedUSD;
         if (transaction.change) {
           overallTotals.totalChangeUSD += transaction.change;
         }

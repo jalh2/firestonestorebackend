@@ -37,6 +37,7 @@ const getProducts = async (req, res) => {
     const store = req.query.store;
     const lowStock = req.query.lowStock === 'true';
     const barcode = req.query.barcode;
+    const search = req.query.search || '';
     const skip = (page - 1) * limit;
 
     if (!store) {
@@ -54,8 +55,18 @@ const getProducts = async (req, res) => {
     // Add barcode filter if provided
     if (barcode) {
       query.barcode = barcode;
-      console.log('Searching for barcode:', barcode);
-      console.log('Query:', query);
+    }
+
+    // Add search functionality
+    if (search) {
+      // Create a case-insensitive search across multiple fields
+      query.$or = [
+        { item: { $regex: search, $options: 'i' } },         // Search by product name
+        { category: { $regex: search, $options: 'i' } },     // Search by category
+        { barcode: { $regex: search, $options: 'i' } },      // Search by barcode
+        { compartment: { $regex: search, $options: 'i' } },  // Search by compartment
+        { shelve: { $regex: search, $options: 'i' } }        // Search by shelve
+      ];
     }
 
     // Get total count for pagination with store filter
@@ -372,6 +383,90 @@ const getInventorySummary = async (req, res) => {
   }
 };
 
+// Bulk update products from Excel upload
+const bulkUpdateProducts = async (req, res) => {
+  try {
+    const { products } = req.body;
+    
+    if (!Array.isArray(products) || products.length === 0) {
+      return res.status(400).json({ error: 'Invalid or empty products array' });
+    }
+
+    const results = {
+      updated: 0,
+      created: 0,
+      errors: 0,
+      details: []
+    };
+
+    for (const item of products) {
+      try {
+        // Check if the product exists (by item name and store)
+        const existingProduct = await Product.findOne({ 
+          item: item.item, 
+          store: item.store 
+        });
+
+        if (existingProduct) {
+          // Update existing product
+          // Calculate totals
+          if (item.pieces && item.priceLRD) {
+            item.totalLRD = item.pieces * item.priceLRD;
+          }
+          
+          if (item.pieces && item.priceUSD) {
+            item.totalUSD = item.pieces * item.priceUSD;
+          }
+
+          const updatedProduct = await Product.findByIdAndUpdate(
+            existingProduct._id,
+            item,
+            { new: true, runValidators: true }
+          );
+
+          results.updated++;
+          results.details.push({
+            item: item.item,
+            status: 'updated',
+            id: updatedProduct._id
+          });
+        } else {
+          // Create new product
+          // Calculate totals
+          if (item.pieces && item.priceLRD) {
+            item.totalLRD = item.pieces * item.priceLRD;
+          }
+          
+          if (item.pieces && item.priceUSD) {
+            item.totalUSD = item.pieces * item.priceUSD;
+          }
+
+          const newProduct = new Product(item);
+          await newProduct.save();
+
+          results.created++;
+          results.details.push({
+            item: item.item,
+            status: 'created',
+            id: newProduct._id
+          });
+        }
+      } catch (error) {
+        results.errors++;
+        results.details.push({
+          item: item.item || 'Unknown',
+          status: 'error',
+          error: error.message
+        });
+      }
+    }
+
+    res.status(200).json(results);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
 module.exports = {
   createProduct,
   getProducts,
@@ -380,5 +475,6 @@ module.exports = {
   updateProductInventory,
   deleteProduct,
   deleteAllProducts,
-  getInventorySummary
+  getInventorySummary,
+  bulkUpdateProducts
 };
