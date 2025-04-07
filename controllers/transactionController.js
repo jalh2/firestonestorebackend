@@ -14,12 +14,16 @@ const createTransaction = async (req, res) => {
       change,
       changeCurrency,
       totalLRD,
-      totalUSD
+      totalUSD,
+      currencyRate 
     } = req.body;
 
     if (!store) {
       return res.status(400).json({ error: 'Store is required' });
     }
+
+    // Use the provided currency rate or default to 197 if not provided
+    const EXCHANGE_RATE = currencyRate || 197;
 
     // Enhanced products with names and prices
     const enhancedProductsSold = [];
@@ -65,8 +69,7 @@ const createTransaction = async (req, res) => {
         return res.status(400).json({ error: 'Both LRD and USD amounts must be provided for split payment' });
       }
       
-      // Check if combined payment is sufficient
-      const EXCHANGE_RATE = 200; // 200 LRD = 1 USD
+      // Check if combined payment is sufficient using the dynamic exchange rate
       const totalPaymentValueLRD = amountReceivedLRD + (amountReceivedUSD * EXCHANGE_RATE);
       
       if (totalPaymentValueLRD < totalLRD) {
