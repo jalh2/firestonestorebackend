@@ -8,6 +8,7 @@ const productRoutes = require('./routes/productRoutes');
 const transactionRoutes = require('./routes/transactionRoutes');
 const userRoutes = require('./routes/userRoutes');
 const currencyRateRoutes = require('./routes/currencyRateRoutes');
+const creditRoutes = require('./routes/creditRoutes');
  
 const app = express();
 //c3242
@@ -29,6 +30,7 @@ app.use('/api/products', productRoutes);
 app.use('/api/transactions', transactionRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/currency-rate', currencyRateRoutes);
+app.use('/api/credits', creditRoutes);
 
 // Connect to MongoDB
 mongoose.connect(process.env.MONGODB_URI)
