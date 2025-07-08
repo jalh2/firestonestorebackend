@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { createProduct, getProducts, getProductById, updateProduct, deleteProduct, deleteAllProducts, getInventorySummary, bulkUpdateProducts } = require('../controllers/productController');
+const { createProduct, getProducts, getAllProducts, getProductById, updateProduct, deleteProduct, deleteAllProducts, getInventorySummary, bulkUpdateProducts } = require('../controllers/productController');
 const upload = require('../middleware/upload');
 
 // Product routes will be added here
@@ -11,8 +11,7 @@ router.get('/summary', getInventorySummary);
 // Get all products
 router.get('/', getProducts);
 
-// Get a specific product
-router.get('/:id', getProductById);
+
 
 // Create a new product with image upload
 router.post('/', upload.single('image'), createProduct);
@@ -22,6 +21,12 @@ router.post('/bulk-update', bulkUpdateProducts);
 
 // Update a product with optional image upload
 router.put('/:id', upload.single('image'), updateProduct);
+
+// Get all products for a store (for Excel download)
+router.get('/all', getAllProducts);
+
+// Get a specific product
+router.get('/:id', getProductById);
 
 // Delete all products for a store
 router.delete('/all', deleteAllProducts);

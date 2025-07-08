@@ -112,7 +112,7 @@ const updateUserType = async (req, res) => {
     const { userId } = req.params;
     const { userType } = req.body;
 
-    if (!['admin', 'employee'].includes(userType)) {
+    if (!['admin', 'employee', 'manager'].includes(userType)) {
       return res.status(400).json({ error: 'Invalid user type' });
     }
 

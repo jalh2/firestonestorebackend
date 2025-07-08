@@ -30,6 +30,28 @@ const createProduct = async (req, res) => {
   }
 };
 
+const getAllProducts = async (req, res) => {
+  try {
+    const { store } = req.query;
+
+    if (!store) {
+      return res.status(400).json({ error: 'Store parameter is required' });
+    }
+
+    // The 'store' in the Product model is the ObjectId of the user/store owner.
+    // We assume the `store` query param is this ID.
+    const products = await Product.find({ store: store }).sort({ createdAt: -1 });
+    
+    res.json(products);
+  } catch (error) {
+    console.error('Error in getAllProducts:', error);
+    res.status(500).json({ 
+      message: 'An error occurred while fetching all products.',
+      error: error.message 
+    });
+  }
+};
+
 const getProducts = async (req, res) => {
   try {
     const page = parseInt(req.query.page) || 1;
@@ -79,49 +101,59 @@ const getProducts = async (req, res) => {
       .skip(lowStock || barcode ? 0 : skip) // Skip pagination for low stock items or barcode search
       .limit(lowStock || barcode ? 100 : limit); // Use higher limit for low stock items or barcode search
     
-    // Get transactions for each product to calculate totals
-    const productsWithTotals = await Promise.all(products.map(async (product) => {
-      const transactions = await Transaction.find({
-        'productsSold.product': product._id,
-        type: 'sale'
-      });
+    // Efficiently fetch transactions for all products in the current page
+    const productIds = products.map(p => p._id);
+    const transactions = await Transaction.find({
+      'productsSold.product': { $in: productIds },
+      type: 'sale'
+    });
 
-      let totalSalesLRD = 0;
-      let totalSalesUSD = 0;
-      let totalQuantitySold = 0;
-
-      transactions.forEach(transaction => {
-        const productSold = transaction.productsSold.find(
-          p => p.product.toString() === product._id.toString()
-        );
-        if (productSold) {
-          totalQuantitySold += productSold.quantity;
+    // Create a map for quick lookup of sales data per product
+    const salesDataMap = new Map();
+    transactions.forEach(transaction => {
+      transaction.productsSold.forEach(p => {
+        const productId = p.product.toString();
+        if (productIds.some(id => id.toString() === productId)) {
+          if (!salesDataMap.has(productId)) {
+            salesDataMap.set(productId, { totalSalesLRD: 0, totalSalesUSD: 0, totalQuantitySold: 0 });
+          }
+          const data = salesDataMap.get(productId);
+          data.totalQuantitySold += p.quantity;
           if (transaction.currency === 'LRD') {
-            totalSalesLRD += productSold.quantity * productSold.price;
+            data.totalSalesLRD += p.quantity * p.price;
           } else {
-            totalSalesUSD += productSold.quantity * productSold.price;
+            data.totalSalesUSD += p.quantity * p.price;
           }
         }
       });
+    });
 
+    // Combine products with their sales data
+    const productsWithTotals = products.map(product => {
+      const salesData = salesDataMap.get(product._id.toString()) || { totalSalesLRD: 0, totalSalesUSD: 0, totalQuantitySold: 0 };
       return {
         ...product.toObject(),
-        totalSalesLRD,
-        totalSalesUSD,
-        totalQuantitySold
+        ...salesData
       };
-    }));
-
-    res.json({
-      products: productsWithTotals,
-      pagination: {
-        currentPage: page,
-        totalPages,
-        hasNextPage: page < totalPages,
-        hasPrevPage: page > 1,
-        totalItems: totalCount
-      }
     });
+
+    // For special queries like low stock or barcode, return a simple array
+    // as the frontend may not expect a paginated structure for these.
+    if (lowStock || barcode) {
+      res.json({ products: productsWithTotals });
+    } else {
+      // For standard queries, return the full paginated structure
+      res.json({
+        products: productsWithTotals,
+        pagination: {
+          currentPage: page,
+          totalPages,
+          hasNextPage: page < totalPages,
+          hasPrevPage: page > 1,
+          totalItems: totalCount
+        }
+      });
+    }
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -503,6 +535,7 @@ const bulkUpdateProducts = async (req, res) => {
 module.exports = {
   createProduct,
   getProducts,
+  getAllProducts,
   getProductById,
   updateProduct,
   updateProductInventory,
