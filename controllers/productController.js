@@ -67,28 +67,28 @@ const getProducts = async (req, res) => {
     }
 
     // Build query
-    const query = { store };
-    
-    // Add low stock filter if requested
-    if (lowStock) {
-      query.pieces = { $lte: 7 };
-    }
-
-    // Add barcode filter if provided
-    if (barcode) {
-      query.barcode = barcode;
-    }
+    let query = { store };
 
     // Add search functionality
     if (search) {
-      // Create a case-insensitive search across multiple fields
-      query.$or = [
-        { item: { $regex: search, $options: 'i' } },         // Search by product name
-        { category: { $regex: search, $options: 'i' } },     // Search by category
-        { barcode: { $regex: search, $options: 'i' } },      // Search by barcode
-        { compartment: { $regex: search, $options: 'i' } },  // Search by compartment
-        { shelve: { $regex: search, $options: 'i' } }        // Search by shelve
-      ];
+      query = {
+        $and: [
+          { store },
+          {
+            $or: [
+              { item: { $regex: search, $options: 'i' } },
+              { category: { $regex: search, $options: 'i' } },
+              { barcode: { $regex: search, $options: 'i' } },
+              { compartment: { $regex: search, $options: 'i' } },
+              { shelve: { $regex: search, $options: 'i' } },
+            ],
+          },
+        ],
+      };
+    } else if (lowStock) {
+      query.pieces = { $lte: 7 };
+    } else if (barcode) {
+      query.barcode = barcode;
     }
 
     // Get total count for pagination with store filter
