@@ -89,6 +89,14 @@ const transactionSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Transaction'
   },
+  cashierId: {
+    type: String,
+    trim: true
+  },
+  cashierName: {
+    type: String,
+    trim: true
+  },
   createdAt: { type: Date, default: Date.now }
 });
 

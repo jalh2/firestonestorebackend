@@ -23,7 +23,9 @@ const createTransaction = async (req, res) => {
       discountType,
       discountValue,
       discountAmount,
-      subtotal
+      subtotal,
+      cashierId,
+      cashierName
     } = req.body;
 
     if (!store) {
@@ -299,7 +301,7 @@ const getTransactionsByDateRange = async (req, res) => {
 
 const getSalesReport = async (req, res) => {
   try {
-    const { startDate, endDate, store, allStores } = req.query;
+    const { startDate, endDate, store, allStores, cashierId } = req.query;
     
     if (!allStores && !store) {
       return res.status(400).json({ error: 'Either store parameter or allStores flag is required' });
@@ -321,6 +323,10 @@ const getSalesReport = async (req, res) => {
 
     if (!allStores) {
       baseQuery.store = store;
+    }
+
+    if (cashierId) {
+      baseQuery.cashierId = cashierId;
     }
 
     // Get sales transactions

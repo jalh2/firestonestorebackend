@@ -1,5 +1,6 @@
 const Product = require('../models/Product');
 const Transaction = require('../models/Transaction');
+const CurrencyRate = require('../models/CurrencyRate');
 
 const createProduct = async (req, res) => {
   try {
@@ -11,6 +12,15 @@ const createProduct = async (req, res) => {
     // Ensure store is provided
     if (!productData.store) {
       throw new Error('Store is required');
+    }
+
+    // Get current exchange rate
+    const rateDoc = await CurrencyRate.getRate();
+    const exchangeRate = rateDoc.lrdToUsd;
+
+    // Auto-calculate LRD price if USD price is provided
+    if (productData.priceUSD) {
+      productData.priceLRD = productData.priceUSD * exchangeRate;
     }
 
     // Calculate totals manually in case they're not provided
@@ -206,6 +216,15 @@ const updateProduct = async (req, res) => {
     const { id } = req.params;
     const updates = req.body;
     
+    // Get current exchange rate
+    const rateDoc = await CurrencyRate.getRate();
+    const exchangeRate = rateDoc.lrdToUsd;
+
+    // Auto-calculate LRD price if USD price is being updated
+    if (updates.priceUSD !== undefined) {
+      updates.priceLRD = updates.priceUSD * exchangeRate;
+    }
+
     // Calculate totals if pieces or prices are being updated
     if ((updates.pieces || updates.priceLRD) && (updates.pieces !== undefined || updates.priceLRD !== undefined)) {
       const product = await Product.findById(id);
@@ -464,8 +483,17 @@ const bulkUpdateProducts = async (req, res) => {
       details: []
     };
 
+    // Get current exchange rate
+    const rateDoc = await CurrencyRate.getRate();
+    const exchangeRate = rateDoc.lrdToUsd;
+
     for (const item of products) {
       try {
+        // Auto-calculate LRD price if USD price is provided
+        if (item.priceUSD) {
+          item.priceLRD = item.priceUSD * exchangeRate;
+        }
+
         // Check if the product exists (by item name and store)
         const existingProduct = await Product.findOne({ 
           item: item.item, 
